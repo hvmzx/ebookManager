@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  ebookmanager:
+    build:
+      context: .
+    container_name: ebookmanager
+    environment:
+      - MANGA_MONITORING=true
+      - BOOK_MONITORING=true
+    volumes:
+      - ~/Downloads/ebooks:/ebooks
+
+  # manga-manager:
+  #   image: thepromidius/manga-manager:latest
+  #   ports:
+  #     # Web UI
+  #     - "3000:3000"
+  #     # OPTIONAL: RDP Port for browser-less connection
+  #     # - "3389:3389"
+  #   volumes:
+  #     - ~/Downloads/ebooks:/manga
+  #     - ./your/covers_images/directory:/covers
+  #   environment:
+  #     - PUID=1000
+  #     - PGID=1000
+  #     # Background Stuff:
+  #     - TITLE="Manga Manager"
+  #     # OPTIONAL:
+  #     - UMASK=022
+  #     - TZ=Europe/Berlin
+  #     - KEYBOARD=en-us-qwerty
+  #     # Specify a subfolder to use with reverse proxies, i.e.: /subfolder/
+  #     - SUBFOLDER=/
+  #   # You need this setting if your Docker version is below 20.10.10
+  #   # See: https://docs.linuxserver.io/faq#jammy
+  #   # security_opt:
+  #   #   - seccomp=unconfined
