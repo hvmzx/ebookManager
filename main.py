@@ -1,6 +1,7 @@
 import os
 import re
 import time
+import threading
 import ebooklib
 from ebooklib import epub
 from watchdog.observers import Observer
@@ -51,10 +52,6 @@ class EbookHandler(FileSystemEventHandler):
         except FileNotFoundError:
             return False
 
-    def is_temp_file(self, file_path):
-        """Check if the file is a temporary file based on its extension."""
-        return file_path.endswith('.temp')
-
     def update_epub_metadata(self, file_path, series, series_index, title, authors):
         try:
             # Load the EPUB file
@@ -84,7 +81,7 @@ class EbookHandler(FileSystemEventHandler):
             logger.error(f"Error updating EPUB metadata: {e}")
 
     def process_file(self, file_path):
-        # Extract file name and extension
+        """Process the file based on whether it's a book or manga."""
         file_name = os.path.basename(file_path)
         
         # Handle .kepub.epub and other extensions
@@ -137,10 +134,9 @@ class EbookHandler(FileSystemEventHandler):
 
         else:
             # Process book files
-            # Replace underscores with spaces, and handle author and title extraction
             name = name.replace('_', ' ')
             name = re.sub(r'\s*[\;&,]\s*', ', ', name)  # Replace ; & , with ,
-            name = re.sub(r'\s*\(.*?\)', '', name)  # Remove (XXXX) if it matches the extension
+            name = re.sub(r'\s*\(.*?\)', '', name)  # Remove (XXXX)
 
             # Split authors and title
             parts = re.split(r' - ', name, maxsplit=1)
@@ -166,18 +162,18 @@ class EbookHandler(FileSystemEventHandler):
                 self.update_epub_metadata(new_file_path, '', '', title, authors)
             logger.info(f'Processed and renamed book: {file_name} -> {folder_name}/{new_file_name}')
 
+    def handle_new_file(self, file_path):
+        """Handle new file creation in a thread."""
+        if self.is_file_stable(file_path):
+            self.process_file(file_path)
+        else:
+            logger.warning(f'File {file_path} was not stable, skipping processing.')
+
     def on_created(self, event):
         if os.path.isfile(event.src_path):
             logger.info(f'New file detected: {event.src_path}')
-            # Wait for the file to be stable before processing
-            while self.is_temp_file(event.src_path):
-                logger.info(f'Waiting for temp file {event.src_path} to be fully written.')
-                time.sleep(30)  # Wait for 1 second before checking again
-
-            if self.is_file_stable(event.src_path):
-                self.process_file(event.src_path)
-            else:
-                logger.warning(f'File {event.src_path} was not stable, skipping processing.')
+            # Start a new thread to handle file processing
+            threading.Thread(target=self.handle_new_file, args=(event.src_path,)).start()
 
 def start_monitoring(watch_directory, book_monitoring, manga_monitoring, stability_time=2):
     if book_monitoring:
