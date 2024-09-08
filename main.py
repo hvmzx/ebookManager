@@ -2,7 +2,6 @@ import os
 import re
 import time
 import threading
-import ebooklib
 from ebooklib import epub
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -162,12 +161,19 @@ class EbookHandler(FileSystemEventHandler):
                 self.update_epub_metadata(new_file_path, '', '', title, authors)
             logger.info(f'Processed and renamed book: {file_name} -> {folder_name}/{new_file_name}')
 
-    def handle_new_file(self, file_path):
-        """Handle new file creation in a thread."""
-        if self.is_file_stable(file_path):
-            self.process_file(file_path)
-        else:
-            logger.warning(f'File {file_path} was not stable, skipping processing.')
+    def handle_new_file(self, file_path, retry_interval=30, max_retries=10):
+        """Handle new file creation with retries for stability."""
+        retries = 0
+        while retries < max_retries:
+            if self.is_file_stable(file_path):
+                self.process_file(file_path)
+                return  # Exit once the file is processed
+            else:
+                retries += 1
+                logger.warning(f'File {file_path} is not stable, retrying in {retry_interval} seconds ({retries}/{max_retries})...')
+                time.sleep(retry_interval)
+
+        logger.error(f'File {file_path} was not stable after {max_retries} retries, skipping processing.')
 
     def on_created(self, event):
         if os.path.isfile(event.src_path):
