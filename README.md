@@ -12,6 +12,7 @@ docker run --name ebookmanager --restart unless-stopped \
   -e MANGA_MONITORING='false' \
   -e BOOK_MONITORING='false' \
   -e SCAN_INTERVAL='5' \
+  -e KCC_OPTIONS= \
   ghcr.io/hvmzx/ebookmanager:latest
 ```
 
@@ -26,6 +27,7 @@ services:
       - MANGA_MONITORING=false #Set to true to monitor mangas in the /ebooks/mangas folder
       - BOOK_MONITORING=false #Set to true to monitor books in the /ebooks/books folder
       - SCAN_INTERVAL=5 #Interval at which ebooks are monitored
+      - KCC_OPTIONS= #Use the options provided here: https://github.com/ciromattia/kcc?tab=readme-ov-file#standalone-kcc-c2epy-usage
     volumes:
       - ebook_path:/ebooks #this needs to contain a mangas and books folder
 ```
