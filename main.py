@@ -124,7 +124,9 @@ class EbookProcessor:
                 series_index = ''
 
             #Process Ebook with KCC
+            global kcc_options
             if kcc_options:
+                kcc_options = f"-a \"{', '.join(authors)}\" -t \"{title}\" {kcc_options}"
                 command = f"python /usr/local/bin/kcc/kcc-c2e.py {kcc_options} \"{file_path}\" -o \"{os.path.dirname(file_path)}\"" 
                 logger.success(f'{command}')
                 subprocess.run(command, shell=True) 
