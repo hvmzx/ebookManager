@@ -1,7 +1,4 @@
-import os
-import re
-import time
-import threading
+import os, re, time, subprocess, glob
 from ebooklib import epub
 import colorlog 
 import logging
@@ -9,6 +6,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 SUCCESS_LEVEL_NUM = 25
 logging.addLevelName(SUCCESS_LEVEL_NUM, "SUCCESS")
+book_monitoring = os.getenv('BOOK_MONITORING', 'false').lower() == 'true'
+manga_monitoring = os.getenv('MANGA_MONITORING', 'false').lower() == 'true'
+scan_interval = int(os.getenv('MONITORING_INTERVAL', 30))
+max_threads = int(os.getenv('MAX_THREADS', 4))
+watch_directory = '/ebooks'
+kcc_options = os.getenv('KCC_OPTIONS', '')
 
 def success(self, message, *args, **kwargs):
     if self.isEnabledFor(SUCCESS_LEVEL_NUM):
@@ -91,10 +94,11 @@ class EbookProcessor:
             name, ext = os.path.splitext(file_name)
 
         if self.is_manga:
+
             # Parse manga file name
             parts = re.split(r' - ', name, maxsplit=2)
             if len(parts) != 3:
-                logger.info(f'Filename does not match expected manga pattern: {file_name}')
+                #logger.info(f'Filename does not match expected manga pattern: {file_name}')
                 return
 
             authors, series, title = parts
@@ -119,19 +123,48 @@ class EbookProcessor:
             else:
                 series_index = ''
 
+            #Process Ebook with KCC
+            if kcc_options:
+                command = f"python /usr/local/bin/kcc/kcc-c2e.py {kcc_options} \"{file_path}\" -o \"{os.path.dirname(file_path)}\"" 
+                logger.success(f'{command}')
+                subprocess.run(command, shell=True) 
+                logger.success(f'{"KCC processed manga successfully"}')
+            
+                # Check for either .epub or .kepub.epub output
+                output_dir = os.path.dirname(file_path)
+                base_name = os.path.splitext(os.path.basename(file_path))[0]
+                new_file_path = None
+
+                # Use glob to check for both potential output files
+                for ext in ['.epub', '.kepub.epub']:
+                    potential_file = os.path.join(output_dir, f"{base_name}{ext}")
+                    if os.path.exists(potential_file):
+                        new_file_path = potential_file
+                        break
+
+                if not new_file_path:
+                    logger.error(f'KCC output file not found for {file_path}')
+                    return
+                else:
+                    logger.success(f'KCC output file found: {new_file_path}')
+                    file_path = new_file_path
+
             # Create folder structure and rename file
-            folder_name = os.path.join(self.watch_directory, series)
-            os.makedirs(folder_name, exist_ok=True)
-            new_file_name = f"{series} - {title}{ext}"
-            new_file_path = os.path.join(folder_name, new_file_name)
-            os.rename(file_path, new_file_path)
+            if ext in ['.epub', '.kepub.epub']:
+                folder_name = os.path.join(self.watch_directory, series)
+                os.makedirs(folder_name, exist_ok=True)
+                new_file_name = f"{title}{ext}"
+                new_file_path = os.path.join(folder_name, new_file_name)
+                os.rename(file_path, new_file_path)
 
-            # Update metadata
-            self.update_epub_metadata(new_file_path, series, series_index, title, authors)
+                # Update metadata
+                self.update_epub_metadata(new_file_path, series, series_index, title, authors)
 
-            logger.success(f'Processed and renamed manga: {file_name} -> {new_file_path}')
+                logger.success(f'Processed and renamed manga: {file_name} -> {new_file_path}')
+            else:
+                logger.success(f'File is not an epub')
 
-        else:
+        elif ext == ".epub":
             # Process book files
             name = name.replace('_', ' ')
             name = re.sub(r'\s*[\;&,]\s*', ', ', name)  # Replace ; & , with ,
@@ -163,11 +196,20 @@ class EbookProcessor:
 
     def scan_directory(self):
         """Scan the directory for new files."""
-        files_to_process = [
-            os.path.join(self.watch_directory, file_name)
-            for file_name in os.listdir(self.watch_directory)
-            if file_name.endswith(('.kepub.epub', '.epub'))  # Only process EPUB files
-        ]
+        if self.is_manga:
+            # Process all files for mangas
+            files_to_process = [
+                os.path.join(self.watch_directory, file_name)
+                for file_name in os.listdir(self.watch_directory)
+                if os.path.isfile(os.path.join(self.watch_directory, file_name))  # Process all files
+            ]
+        else:
+            # Only process .epub and .kepub.epub files for books
+            files_to_process = [
+                os.path.join(self.watch_directory, file_name)
+                for file_name in os.listdir(self.watch_directory)
+                if file_name.endswith(('.kepub.epub', '.epub'))  # Only process EPUB files
+            ]
 
         with ThreadPoolExecutor(max_workers=self.max_threads) as executor:
             futures = [executor.submit(self.process_file, file_path) for file_path in files_to_process]
@@ -199,11 +241,4 @@ def start_monitoring(watch_directory, book_monitoring, manga_monitoring, stabili
         logger.info("Monitoring stopped.")
 
 if __name__ == "__main__":
-    import os
-    book_monitoring = os.getenv('BOOK_MONITORING', 'false').lower() == 'true'
-    manga_monitoring = os.getenv('MANGA_MONITORING', 'false').lower() == 'true'
-    scan_interval = int(os.getenv('MONITORING_INTERVAL', 30))
-    max_threads = int(os.getenv('MAX_THREADS', 4))
-    watch_directory = '/ebooks'
-
     start_monitoring(watch_directory, book_monitoring, manga_monitoring, stability_time=10, scan_interval=scan_interval, max_threads=max_threads)
