@@ -220,13 +220,21 @@ class EbookProcessor:
                     logger.error(f"Error processing file: {e}")
 
 def start_monitoring(watch_directory, book_monitoring, manga_monitoring, stability_time=10, scan_interval=30, max_threads=4):
+    books_folder = os.path.join(watch_directory, 'books')
+    mangas_folder = os.path.join(watch_directory, 'mangas')
     if book_monitoring:
+        if not os.path.exists(books_folder):
+            logger.info(f'Books folder does not exist. Creating: {books_folder}')
+            os.makedirs(books_folder, exist_ok=True)
         logger.info(f'Starting book scan on: {os.path.join(watch_directory, "books")}')
-        processor_books = EbookProcessor(watch_directory=os.path.join(watch_directory, 'books'), is_manga=False, stability_time=stability_time, max_threads=max_threads)
+        processor_books = EbookProcessor(watch_directory=books_folder, is_manga=False, stability_time=stability_time, max_threads=max_threads)
 
     if manga_monitoring:
+        if not os.path.exists(mangas_folder):
+            logger.info(f'Mangas folder does not exist. Creating: {mangas_folder}')
+            os.makedirs(mangas_folder, exist_ok=True)
         logger.info(f'Starting manga scan on: {os.path.join(watch_directory, "mangas")}')
-        processor_mangas = EbookProcessor(watch_directory=os.path.join(watch_directory, 'mangas'), is_manga=True, stability_time=stability_time, max_threads=max_threads)
+        processor_mangas = EbookProcessor(watch_directory=mangas_folder, is_manga=True, stability_time=stability_time, max_threads=max_threads)
 
     try:
         while True:
