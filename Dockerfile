@@ -1,26 +1,26 @@
 # syntax=docker/dockerfile:1
 # Use a base image with Python installed
-FROM python:3.10
+FROM python:3.12-slim-bullseye
 
 # Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3-dev libpng-dev libjpeg-dev p7zip-full python3-pyqt5 unrar-free libgl1 \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends libpng-dev libjpeg-dev p7zip-full unrar-free libgl1 jq build-essential cmake curl && \
+    rm -rf /var/lib/apt/lists/*
 
 # Set the working directory
 WORKDIR /usr/local/bin
 
-# Clone KCC from GitHub
-RUN git clone https://github.com/ciromattia/kcc.git
-
-# Upgrade pip and install all requirements
-RUN python3 -m pip install --upgrade pip && \
-    python3 -m pip install cmake && \
+# Clone kcc and install all requirements
+RUN LATEST_TAG=$(curl -s "https://api.github.com/repos/ciromattia/kcc/releases/latest" | jq -rc ".tag_name") && \
+    curl -L -o kcc.tar.gz https://github.com/ciromattia/kcc/archive/refs/tags/${LATEST_TAG}.tar.gz && \
+    tar -xzf kcc.tar.gz && \
+    mv kcc-* kcc && \
+    rm kcc.tar.gz && \
+    python3 -m pip install --upgrade pip && \
     python3 -m pip install -r kcc/requirements.txt
 
 # Install Kindlegen
-RUN wget https://archive.org/download/kindlegen_linux_2_6_i386_v2_9/kindlegen_linux_2.6_i386_v2_9.tar.gz && \
+RUN curl -L -o kindlegen_linux_2.6_i386_v2_9.tar.gz https://archive.org/download/kindlegen_linux_2_6_i386_v2_9/kindlegen_linux_2.6_i386_v2_9.tar.gz && \
     tar -xf kindlegen_linux_2.6_i386_v2_9.tar.gz "kindlegen" && \
     chmod +rwx 'kindlegen' && rm kindlegen_linux_2.6_i386_v2_9.tar.gz
 
