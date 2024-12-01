@@ -10,7 +10,8 @@ book_monitoring = os.getenv('BOOK_MONITORING', 'false').lower() == 'true'
 manga_monitoring = os.getenv('MANGA_MONITORING', 'false').lower() == 'true'
 scan_interval = int(os.getenv('MONITORING_INTERVAL', 30))
 max_threads = int(os.getenv('MAX_THREADS', 4))
-watch_directory = '/ebooks'
+watch_directory = '/ebooks_in'
+output_directory = '/ebooks_out'
 kcc_options = os.getenv('KCC_OPTIONS', '')
 
 def success(self, message, *args, **kwargs):
@@ -153,7 +154,7 @@ class EbookProcessor:
 
             # Create folder structure and rename file
             if ext in ['.epub', '.kepub.epub']:
-                folder_name = os.path.join(self.watch_directory, series)
+                folder_name = os.path.join(output_directory, series)
                 os.makedirs(folder_name, exist_ok=True)
                 new_file_name = f"{title}{ext}"
                 new_file_path = os.path.join(folder_name, new_file_name)
@@ -201,15 +202,17 @@ class EbookProcessor:
         if self.is_manga:
             # Process all files for mangas
             files_to_process = [
-                os.path.join(self.watch_directory, file_name)
-                for file_name in os.listdir(self.watch_directory)
-                if os.path.isfile(os.path.join(self.watch_directory, file_name))  # Process all files
+                os.path.join(root, file_name)
+                for root, _, files in os.walk(self.watch_directory) 
+                for file_name in files
+                if os.path.isfile(os.path.join(root, file_name))  # Process all files
             ]
         else:
             # Only process .epub and .kepub.epub files for books
             files_to_process = [
-                os.path.join(self.watch_directory, file_name)
-                for file_name in os.listdir(self.watch_directory)
+                os.path.join(root, file_name)
+                for root, _, files in os.walk(self.watch_directory)
+                for file_name in files
                 if file_name.endswith(('.kepub.epub', '.epub'))  # Only process EPUB files
             ]
 
@@ -224,7 +227,13 @@ class EbookProcessor:
 def start_monitoring(watch_directory, book_monitoring, manga_monitoring, stability_time=10, scan_interval=30, max_threads=4):
     books_folder = os.path.join(watch_directory, 'books')
     mangas_folder = os.path.join(watch_directory, 'mangas')
+
+    logger.info(f"Watch directory: {watch_directory}")
+    logger.info(f"Books folder path: {books_folder}")
+    logger.info(f"Mangas folder path: {mangas_folder}")
+
     if book_monitoring:
+        logger.info("Book monitoring enabled.")
         if not os.path.exists(books_folder):
             logger.info(f'Books folder does not exist. Creating: {books_folder}')
             os.makedirs(books_folder, exist_ok=True)
@@ -232,6 +241,7 @@ def start_monitoring(watch_directory, book_monitoring, manga_monitoring, stabili
         processor_books = EbookProcessor(watch_directory=books_folder, is_manga=False, stability_time=stability_time, max_threads=max_threads)
 
     if manga_monitoring:
+        logger.info("Manga monitoring enabled.")
         if not os.path.exists(mangas_folder):
             logger.info(f'Mangas folder does not exist. Creating: {mangas_folder}')
             os.makedirs(mangas_folder, exist_ok=True)
