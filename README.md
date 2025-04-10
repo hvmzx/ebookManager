@@ -8,10 +8,11 @@ For a simple docker run :
 
 ```bash
 docker run --name ebookmanager --restart unless-stopped \
-  -v ebook_path:/ebooks \
+  -v /input/ebooks:/app/ebooks/ebooks_in \
+  -v /output/ebooks:/app/ebooks/ebooks_out \
   -e MANGA_MONITORING='false' \
   -e BOOK_MONITORING='false' \
-  -e SCAN_INTERVAL='5' \
+  -e SCAN_INTERVAL='60' \
   -e KCC_OPTIONS= \
   ghcr.io/hvmzx/ebookmanager:latest
 ```
@@ -19,17 +20,20 @@ docker run --name ebookmanager --restart unless-stopped \
 For docker-compose :
 
 ```bash
+version: '3.8'
+
 services:
   ebookmanager:
-    image: ghcr.io/hvmzx/ebookmanager:latest
     container_name: ebookmanager
+    image: ghcr.io/hvmzx/ebookmanager:dev
     environment:
-      - MANGA_MONITORING=false #Set to true to monitor mangas in the /ebooks/mangas folder
-      - BOOK_MONITORING=false #Set to true to monitor books in the /ebooks/books folder
-      - SCAN_INTERVAL=5 #Interval at which ebooks are monitored
-      - KCC_OPTIONS= #Use the options provided here: https://github.com/ciromattia/kcc?tab=readme-ov-file#standalone-kcc-c2epy-usage
+      - MANGA_MONITORING=false #Set to false by default
+      - BOOK_MONITORING=false #Set to false by default
+      - SCAN_INTERVAL=60 #Set to 60s by default
+      - KCC_OPTIONS= #KCC options as per https://github.com/ciromattia/kcc#standalone-kcc-c2epy-usage
     volumes:
-      - ebook_path:/ebooks #this needs to contain a mangas and books folder
+      - /input/ebooks:/app/ebooks/ebooks_in
+      - /output/ebooks:/app/ebooks/ebooks_out
 ```
 
 ## Requirements :
