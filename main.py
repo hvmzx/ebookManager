@@ -1,14 +1,13 @@
 import os, re, time, subprocess, shutil, logging, sys, warnings
-# import colorlog
 from ebooklib import epub
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 SUCCESS_LEVEL_NUM = 25
 book_monitoring = os.getenv('BOOK_MONITORING', 'false').lower() == 'true'
 manga_monitoring = os.getenv('MANGA_MONITORING', 'false').lower() == 'true'
-scan_interval = int(os.getenv('MONITORING_INTERVAL', 30))
+scan_interval = int(os.getenv('MONITORING_INTERVAL', 60))
 max_threads = int(os.getenv('MAX_THREADS', 4))
-watch_directory = '/app/ebooks/ebooks_in'
+watch_directory =  '/app/ebooks/ebooks_in'
 output_directory = '/app/ebooks/ebooks_out'
 kcc_options = os.getenv('KCC_OPTIONS', '')
 kcc_path = '/usr/local/bin/kcc/'
@@ -33,6 +32,7 @@ logger.addHandler(console_handler)
 
 warnings.filterwarnings("ignore", module="ebooklib")
 
+
 class EbookProcessor:
     def __init__(self, watch_directory, is_manga=False, stability_time=10, max_threads=4):
         self.watch_directory = watch_directory
@@ -40,49 +40,39 @@ class EbookProcessor:
         self.stability_time = stability_time  # Time to wait for file stability
         self.max_threads = max_threads  # Number of threads to use
 
-    def is_file_stable(self, file_path):
-        """Check if the file size remains constant for a period of time."""
-        try:
-            initial_size = os.path.getsize(file_path)
-            time.sleep(self.stability_time)
-            final_size = os.path.getsize(file_path)
-            return initial_size == final_size
-        except FileNotFoundError:
-            return False
+    def scan_directory(self):
+        """Scan the directory for new files."""
+        if self.is_manga:
+            # Process all files for mangas, including those inside subfolders
+            files_to_process = [
+                os.path.join(root, file_name)
+                for root, _, files in os.walk(self.watch_directory)
+                for file_name in files
+                if file_name.endswith('.cbz')  # Only process .cbz files
+            ]
+        else:
+            # Only process .epub and .kepub.epub files for books
+            files_to_process = [
+                os.path.join(root, file_name)
+                for root, _, files in os.walk(self.watch_directory)
+                for file_name in files
+                if file_name.endswith(('.kepub.epub', '.epub'))  # Only process EPUB files
+            ]
 
-    def update_epub_metadata(self, file_path, series, series_index, title, authors):
-        try:
-            # Load the EPUB file
-            book = epub.read_epub(file_path)
-
-            # Update the title if empty
-            if not book.get_metadata('DC', 'title'):
-                book.set_title(title)
-
-            # Add the author metadata
-            if not book.get_metadata('DC', 'creator'):
-                for author in authors:
-                    book.add_author(author)
-
-            # Add the Kobo specific metadata for series and series index
-            if series:
-                # Generate series_id from series name
-                series_id = series.lower().replace(" ", "-")
-                book.add_metadata(None, 'meta', series, {'property': 'belongs-to-collection', 'id': series_id})
-                book.add_metadata(None, 'meta', 'series', {'refines': f'#{series_id}', 'property': 'collection-type'})
-                book.add_metadata(None, 'meta', series_index, {'refines': f'#{series_id}', 'property': 'group-position'})
-
-            # Save the updated EPUB
-            epub.write_epub(file_path, book)
-
-        except Exception as e:
-            logger.error(f"Error updating EPUB metadata: {e}")
+        with ThreadPoolExecutor(max_workers=self.max_threads) as executor:
+            futures = [executor.submit(self.process_file, file_path) for file_path in files_to_process]
+            for future in as_completed(futures):
+                try:
+                    future.result()  # This will raise any exceptions caught in the thread
+                except Exception as e:
+                    logger.error(f"Error processing file: {e}")
 
     def process_file(self, file_path):
         """Process the file based on whether it's a book or manga."""
         file_name = os.path.basename(file_path)
-        output_path = os.path.join(output_directory, "mangas")
         # Handle .cbz manga files
+        logger.info(self.is_manga)
+        
         if self.is_manga and file_name.endswith('.cbz'):
             # Get the immediate parent folder (series name)
             series = os.path.basename(os.path.dirname(file_path))  # This is the series name
@@ -142,7 +132,6 @@ class EbookProcessor:
                     ),
                     None
                 )
-                #logger.debug(f"✅ new_file_path: {new_file_path}" if new_file_path else "❌ No matching file found.")
 
                 # Extract the file extension
                 match = re.match(r"(.*?)(\.[^.]+(?:\.[^.]+)*)$", new_file_path)
@@ -157,65 +146,68 @@ class EbookProcessor:
                 # Rename the file
                 shutil.move(new_file_path, new_output_path)
                 
-            # Update metadata
-            self.update_epub_metadata(new_output_path, series, series_index, title, authors)
+                # Update metadata
+                self.update_epub_metadata(new_output_path, series, series_index, title, authors)
+
+                logger.info(
+                    f'Manga "{title}" metadata updated and moved to output directory'
+                )
+        elif not self.is_manga and file_name.endswith('.epub'):
+            logger.debug("Processing book")
+            book = epub.read_epub(file_path)
+            title = book.get_metadata('DC', 'title')[0][0]
+            authors = book.get_metadata('DC', 'creator')
+            authors = [author[0] for author in authors]
+            authors = ', '.join(authors)
+            logger.debug(f"METADATA PARSED: Authors: {authors} | Title: {title}")
+            
+            output_path = os.path.join(output_directory, "books", title)
+            os.makedirs(output_path, exist_ok=True)
+            new_output_path = os.path.join(output_path, f"{title}.epub")
+            
+            shutil.move(file_path, new_output_path)
 
             logger.info(
-                f'Manga "{title}" metadata updated and moved to output directory'
-)
-        # def scan_directory(self):
-            """Scan the directory for new files."""
-            if self.is_manga:
-                # Process all files for mangas
-                files_to_process = [
-                    os.path.join(root, file_name)
-                    for root, _, files in os.walk(self.watch_directory) 
-                    for file_name in files
-                    if os.path.isfile(os.path.join(root, file_name))  # Process all files
-                ]
-            else:
-                # Only process .epub and .kepub.epub files for books
-                files_to_process = [
-                    os.path.join(root, file_name)
-                    for root, _, files in os.walk(self.watch_directory)
-                    for file_name in files
-                    if file_name.endswith(('.kepub.epub', '.epub'))  # Only process EPUB files
-                ]
+                f'Book "{title}" has been moved to output directory'
+            )
+            
+    def is_file_stable(self, file_path):
+        """Check if the file size remains constant for a period of time."""
+        try:
+            initial_size = os.path.getsize(file_path)
+            time.sleep(self.stability_time)
+            final_size = os.path.getsize(file_path)
+            return initial_size == final_size
+        except FileNotFoundError:
+            return False
 
-            with ThreadPoolExecutor(max_workers=self.max_threads) as executor:
-                futures = [executor.submit(self.process_file, file_path) for file_path in files_to_process]
-                for future in as_completed(futures):
-                    try:
-                        future.result()  # This will raise any exceptions caught in the thread
-                    except Exception as e:
-                        logger.error(f"Error processing file: {e}")
+    def update_epub_metadata(self, file_path, series, series_index, title, authors):
+        try:
+            # Load the EPUB file
+            book = epub.read_epub(file_path)
 
-    def scan_directory(self):
-        """Scan the directory for new files."""
-        if self.is_manga:
-            # Process all files for mangas, including those inside subfolders
-            files_to_process = [
-                os.path.join(root, file_name)
-                for root, _, files in os.walk(self.watch_directory)
-                for file_name in files
-                if file_name.endswith('.cbz')  # Only process .cbz files
-            ]
-        else:
-            # Only process .epub and .kepub.epub files for books
-            files_to_process = [
-                os.path.join(root, file_name)
-                for root, _, files in os.walk(self.watch_directory)
-                for file_name in files
-                if file_name.endswith(('.kepub.epub', '.epub'))  # Only process EPUB files
-            ]
+            # Update the title if empty
+            if not book.get_metadata('DC', 'title'):
+                book.set_title(title)
 
-        with ThreadPoolExecutor(max_workers=self.max_threads) as executor:
-            futures = [executor.submit(self.process_file, file_path) for file_path in files_to_process]
-            for future in as_completed(futures):
-                try:
-                    future.result()  # This will raise any exceptions caught in the thread
-                except Exception as e:
-                    logger.error(f"Error processing file: {e}")
+            # Add the author metadata
+            if not book.get_metadata('DC', 'creator'):
+                for author in authors:
+                    book.add_author(author)
+
+            # Add the Kobo specific metadata for series and series index
+            if series:
+                # Generate series_id from series name
+                series_id = series.lower().replace(" ", "-")
+                book.add_metadata(None, 'meta', series, {'property': 'belongs-to-collection', 'id': series_id})
+                book.add_metadata(None, 'meta', 'series', {'refines': f'#{series_id}', 'property': 'collection-type'})
+                book.add_metadata(None, 'meta', series_index, {'refines': f'#{series_id}', 'property': 'group-position'})
+
+            # Save the updated EPUB
+            epub.write_epub(file_path, book)
+
+        except Exception as e:
+            logger.error(f"Error updating EPUB metadata: {e}")
 
 def start_monitoring(watch_directory, book_monitoring, manga_monitoring, stability_time=10, scan_interval=30, max_threads=4):
     os.makedirs(watch_directory, exist_ok=True)
@@ -236,7 +228,7 @@ def start_monitoring(watch_directory, book_monitoring, manga_monitoring, stabili
         if not os.path.exists(books_folder_in):
             logger.info(f'Books folder does not exist. Creating: {books_folder_in}')
             os.makedirs(books_folder_in, exist_ok=True)
-        processor_books = EbookProcessor(watch_directory=mangas_folder_in, is_manga=False, stability_time=stability_time, max_threads=max_threads)
+        processor_books = EbookProcessor(watch_directory=books_folder_in, is_manga=False, stability_time=stability_time, max_threads=max_threads)
 
     if manga_monitoring:
         logger.info("Manga monitoring enabled.")
