@@ -32,7 +32,7 @@ COPY requirements.txt requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the Python script into the container
-COPY main.py /app/
+COPY * /app/
 
 # Run the Python script
 CMD ["python3", "main.py"]
