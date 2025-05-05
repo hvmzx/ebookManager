@@ -2,6 +2,9 @@ name: Docker Image push to ghcr
 on:
   push:
     branches: [ "*" ]
+  pull_request:
+    branches: [ "*" ]
+  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
