@@ -2,12 +2,13 @@ version: '3.8'
 
 services:
   ebookmanager:
-    image: ghcr.io/hvmzx/ebookmanager:latest
     container_name: ebookmanager
+    image: ghcr.io/hvmzx/ebookmanager:dev
     environment:
-      - MANGA_MONITORING=true
-      - BOOK_MONITORING=true
-      - SCAN_INTERVAL=5
-      - KCC_OPTIONS=-p K
+      - MANGA_MONITORING=false #Set to false by default
+      - BOOK_MONITORING=false #Set to false by default
+      - SCAN_INTERVAL=60 #Set to 60s by default
+      - KCC_OPTIONS= #KCC options as per https://github.com/ciromattia/kcc#standalone-kcc-c2epy-usage
     volumes:
-      - ~/Downloads/ebooks:/ebooks
+      - /input/ebooks:/app/ebooks/ebooks_in
+      - /output/ebooks:/app/ebooks/ebooks_out
