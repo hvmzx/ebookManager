@@ -6,7 +6,7 @@ def setup_logger(name, level=logging.DEBUG):
     if not logger.handlers:
         handler = logging.StreamHandler()
         formatter = logging.Formatter(
-            '%(name)20s - %(levelname)8s - %(message)s',
+            '%(name)9s - %(levelname)5s - %(message)s',
             datefmt='%Y-%m-%d %H:%M:%S'
         )
         handler.setFormatter(formatter)
@@ -16,7 +16,8 @@ def setup_logger(name, level=logging.DEBUG):
     return logger
 
 def log_metadata_section(logger, section_title, metadata: dict, trim_description=True, max_description_len=20):
-    logger.info(f"--- {section_title} ---")
+    if section_title:  # Only show dashes if there's a section title
+        logger.info(f"--- {section_title} ---")
 
     for key, value in metadata.items():
         label = key.capitalize().replace("_", " ")

@@ -8,15 +8,18 @@ from metadata_fetcher import fetch_book_info
 from logger import *
 from config import *
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import zipfile
+import xml.etree.ElementTree as ET
+from epub_metadata_handler import edit_epub_metadata, extract_epub_metadata
 
-logger = setup_logger("EBOOK PROCESSOR")
+logger = setup_logger("PROCESSOR")
 
 class EbookProcessor:
     def __init__(self, watch_directory, is_manga):
         self.watch_directory = watch_directory
         self.is_manga = is_manga
         self.stability_time = stability_time
-        self.MAX_THREADS = MAX_THREADS
+        self.max_threads = max_threads
 
     def scan_directory(self):
         if self.is_manga:
@@ -34,7 +37,7 @@ class EbookProcessor:
                 if file_name.endswith(('.kepub.epub', '.epub'))
             ]
 
-        with ThreadPoolExecutor(max_workers=self.MAX_THREADS) as executor:
+        with ThreadPoolExecutor(max_workers=self.max_threads) as executor:
             futures = [executor.submit(self.process_ebook, file_path) for file_path in files_to_process]
             for future in as_completed(futures):
                 try:
@@ -43,40 +46,37 @@ class EbookProcessor:
                     logger.error(f"Error processing file: {e}")
 
     def process_ebook(self, file_path):
+        filename = os.path.basename(file_path)
+        logger.info(f"{'='*60}")
+        logger.info(f"PROCESSING {'MANGA' if self.is_manga else 'BOOK'}: {filename}")
+        logger.info(f"{'='*60}")
+        
         if self.is_manga:
             series, title, authors, index = self.extract_manga_metadata(file_path)
-            if KCC_PROCESS:
+            if kcc_process:
                 file_path = self.process_with_kcc(file_path, title, authors)
+                logger.info(f'KCC processed file: {file_path}')
+            if manga_update_metadata:
+                edit_epub_metadata(
+                    file_path,
+                    current_metadata=(None, None, None, None, None, None),
+                    fetched_metadata=(series, title, authors, index, None, None),
+                    update_mode='partial'
+                )
         elif not self.is_manga:
-            series, title, authors, index, date, description = self.extract_book_metadata(file_path)
-            if UPDATE_METADATA:
+            series, title, authors, index, date, description = extract_epub_metadata(file_path) #self.extract_book_metadata(file_path)
+            if book_update_metadata:
                 fetched_series, fetched_title, fetched_authors, fetched_index, fetched_date, fetched_description = fetch_book_info(title, authors)
-                self.update_metadata(
+                edit_epub_metadata(
                     file_path,
                     current_metadata=(series, title, authors, index, date, description),
-                    fetched_metadata=(fetched_series, fetched_title, fetched_authors, fetched_index, fetched_date, fetched_description)
+                    fetched_metadata=(fetched_series, fetched_title, fetched_authors, fetched_index, fetched_date, fetched_description),
+                    update_mode='complete'
                 )
-        self.rename_and_move_file(file_path, title, series)
+                # Use the fetched metadata for filename (cleaner, updated data)
+                title, authors, series = fetched_title, fetched_authors, fetched_series
+        self.rename_and_move_file(file_path, title, series, authors)
 
-    def extract_book_metadata(self, file_path):
-        book = epub.read_epub(file_path)
-        title = book.get_metadata('DC', 'title')[0][0] if book.get_metadata('DC', 'title') else None
-        authors_raw = book.get_metadata('DC', 'creator')
-        authors = [author[0] for author in authors_raw] if authors_raw else []
-        description = book.get_metadata('DC', 'description')[0][0] if book.get_metadata('DC', 'description') else None
-        date = book.get_metadata('DC', 'date')[0][0] if book.get_metadata('DC', 'date') else None
-        index = book.get_metadata('OPF', 'calibre:series_index')[0][0] if book.get_metadata('OPF', 'calibre:series_index') else None
-        series = book.get_metadata('OPF', 'calibre:series')[0][0] if book.get_metadata('OPF', 'calibre:series') else None
-
-        log_metadata_section(logger, "EXTRACTED METADATA", {
-            "title": title,
-            "authors": authors,
-            "description": description,
-            "date": date,
-            "series": series,
-            "index": index if index else None
-        })
-        return series, title, authors, index, date, description
 
     def extract_manga_metadata(self, file_path):
         """Extract metadata for manga file."""
@@ -93,7 +93,7 @@ class EbookProcessor:
 
         prefix = filename[:chapter_match.start()].strip()
         author = None
-        series = os.path.basename(os.path.dirname(file_path))
+        series = None if os.path.basename(os.path.dirname(file_path)).lower() == "mangas" else os.path.basename(os.path.dirname(file_path))
         if prefix:
             parts = [p.strip().rstrip('-').strip() for p in prefix.split(' - ')]
             if len(parts) == 2:
@@ -103,7 +103,8 @@ class EbookProcessor:
 
         authors = [author.strip()] if author else []
 
-        log_metadata_section(logger, "EXTRACTED METADATA", {
+        logger.info(f"📚 MANGA METADATA EXTRACTED:")
+        log_metadata_section(logger, "", {
             "title": title,
             "authors": authors,
             "series": series,
@@ -114,15 +115,16 @@ class EbookProcessor:
 
     def process_with_kcc(self, file_path, title, authors):
         """Process file using KCC tool."""
-        logger.info(f'Launching KCC with options "{KCC_OPTIONS}"')
+        logger.info(f'Launching KCC with options "{kcc_options}"')
         output_dir = os.path.dirname(file_path)
-        command = f'python3 {kcc_path}kcc-c2e.py "{file_path}" {KCC_OPTIONS} -d -o "{output_dir}" -t "{title}" -a "{", ".join(authors)}"'
+        command = f'python3 {kcc_path}kcc-c2e.py "{file_path}" {kcc_options} -d -o "{output_dir}" -t "{title}" -a "{", ".join(authors)}"'
         result = subprocess.run(command, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
         if result.returncode == 0:
             logger.info(f'KCC processed "{title}" successfully')
         else:
             logger.error(f'Error processing manga "{title}" with KCC, return code: {result.returncode}')
+            return file_path  # Return original file if KCC processing fails
     
         base_name = os.path.splitext(os.path.basename(file_path))[0]
         new_file_path = next(
@@ -133,65 +135,76 @@ class EbookProcessor:
             ),
             None
         )
-        return new_file_path
+        return new_file_path if new_file_path else file_path
 
-    def update_metadata(self, file_path, current_metadata, fetched_metadata):
-        curr_series, curr_title, curr_authors, curr_index, curr_date, curr_desc = current_metadata
-        fetched_series, fetched_title, fetched_authors, fetched_index, fetched_date, fetched_desc = fetched_metadata
-
-        book = epub.read_epub(file_path)
-
-        # TITLE
-        if not curr_title:
-            if fetched_title:
-                book.set_title(fetched_title)
-
-        # AUTHORS
-        if not curr_authors:
-            if fetched_authors:
-                for author in fetched_authors:
-                    book.add_author(author)
-
-        # SERIES
-        if not curr_series:
-            if fetched_series:
-                series_id = fetched_series.lower().replace(" ", "-")
-                book.add_metadata(None, 'meta', fetched_series, {'property': 'belongs-to-collection', 'id': series_id})
-                if not curr_index:
-                    if fetched_index:
-                        book.add_metadata(None, 'meta', 'series', {'refines': f'#{series_id}', 'property': 'collection-type'})
-                        book.add_metadata(None, 'meta', fetched_index, {'refines': f'#{series_id}', 'property': 'group-position'})
-
-        # DESCRIPTION
-        if not curr_desc:
-            if fetched_desc:
-                book.add_metadata('DC', 'description', fetched_desc)
-
-        # DATE
-        if not curr_date:
-            if fetched_date:
-                book.add_metadata('DC', 'date', fetched_date)
-
-        log_metadata_section(logger, "UPDATED METADATA", {
-            "title": fetched_title if not curr_title else None,
-            "authors": fetched_authors if not curr_authors else None,
-            "description": fetched_desc if not curr_desc else None,
-            "date": fetched_date if not curr_date else None,
-            "series": fetched_series if not curr_series else None,
-            "index": fetched_index if not curr_index and fetched_index else None
-        })
-
-        epub.write_epub(file_path, book)
-
-    def rename_and_move_file(self, file_path, title, series):
+    def rename_and_move_file(self, file_path, title, series, authors=None):
+        filename = os.path.basename(file_path)
+        
         if self.is_manga:
-            output_path = os.path.join(output_directory, "mangas", series)
+            output_path = os.path.join(output_directory, "mangas")
+            if series:
+                output_path = os.path.join(output_path, series)
+            # For manga, use just the title as the filename
+            new_file_name_base = title
         else:
-            output_path = os.path.join(output_directory, "books", title)
+            output_path = os.path.join(output_directory, "books")
+            if title:
+                output_path = os.path.join(output_path, title)
+            # For books, use "Authors - Title" format
+            if authors and len(authors) > 0:
+                # Join multiple authors with " & " which is the standard for ebooks
+                authors_str = " & ".join(authors)
+                new_file_name_base = f"{authors_str} - {title}"
+            else:
+                new_file_name_base = title
+        
         os.makedirs(output_path, exist_ok=True)
-        match = re.match(r"(.*?)(\.[^.]+(?:\.[^.]+)*)$", file_path)
-        file_extension = match.group(2)
-        new_file_name = f"{title}{file_extension}"
+        
+        # Get the proper file extension for ebooks
+        if file_path.endswith('.kepub.epub'):
+            file_extension = '.kepub.epub'
+        elif file_path.endswith('.epub'):
+            file_extension = '.epub'
+        elif file_path.endswith('.cbz'):
+            file_extension = '.cbz'
+        else:
+            # Fallback to the last extension for other file types
+            file_extension = os.path.splitext(file_path)[1]
+        
+        new_file_name = f"{new_file_name_base}{file_extension}"
         new_output_path = os.path.join(output_path, new_file_name)
+        # Get the original directory before moving
+        original_dir = os.path.dirname(file_path)
+        
         shutil.move(file_path, new_output_path)
-        logger.info(f'File renamed and moved to: {new_output_path}')
+        
+        # Clean up empty directories after moving the file
+        self.cleanup_empty_directories(original_dir)
+        
+        logger.info(f"{'='*60}")
+        logger.info(f"✅ COMPLETED: {os.path.basename(new_output_path)}")
+        logger.info(f"{'='*60}")
+
+    def cleanup_empty_directories(self, dir_path):
+        """
+        Remove empty directories starting from dir_path and working up the tree.
+        Stops when it encounters a non-empty directory or reaches the watch directory.
+        """
+        try:
+            # Don't remove the watch directory itself
+            if dir_path == self.watch_directory:
+                return
+            
+            # Check if directory is empty
+            if os.path.exists(dir_path) and os.path.isdir(dir_path):
+                if not os.listdir(dir_path):  # Directory is empty
+                    logger.info(f"🗑️  Removing empty directory: {dir_path}")
+                    os.rmdir(dir_path)
+                    
+                    # Recursively check parent directory
+                    parent_dir = os.path.dirname(dir_path)
+                    if parent_dir != dir_path:  # Avoid infinite recursion
+                        self.cleanup_empty_directories(parent_dir)
+                        
+        except Exception as e:
+            logger.warning(f"Could not remove directory {dir_path}: {str(e)}")

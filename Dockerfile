@@ -35,4 +35,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY * /app/
 
 # Run the Python script
-CMD ["python3", "main.py"]
+CMD ["python3", "monitor.py"]

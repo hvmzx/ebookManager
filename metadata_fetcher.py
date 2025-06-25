@@ -1,9 +1,10 @@
 import requests
 from rapidfuzz import fuzz
+from collections import OrderedDict
 from logger import *
 from config import *  
 
-logger = setup_logger("METADATA FETCHER")
+logger = setup_logger("SCRAPER")
 
 def author_match_score(hit_authors, author_list):
     """Compute the best fuzzy score between any hit author and your author list."""
@@ -22,7 +23,7 @@ def get_best_match_index(hits, author_list):
     return scores.index(max(scores)) if scores else -1
 
 def fetch_book_info(title, authors):
-    if not HARDCOVER_API_KEY:
+    if not hardcover_api_key:
       logger.critical("No Hardcover API KEY provided, please get it from here https://hardcover.app/account/api")
       raise SystemExit()
     query = f"""
@@ -39,11 +40,11 @@ def fetch_book_info(title, authors):
     """
 
     headers = {
-        "Authorization": HARDCOVER_API_KEY,
+        "Authorization": hardcover_api_key,
         "Content-Type": "application/json"
     }
 
-    response = requests.post(url, json={"query": query}, headers=headers)
+    response = requests.post(api_url, json={"query": query}, headers=headers)
     data = response.json()
     if 'errors' in data or 'error' in data:
       logger.critical("Wrong Hardcover API KEY provided, please get it from here https://hardcover.app/account/api")
@@ -90,13 +91,14 @@ def fetch_book_info(title, authors):
       book_info["Error"] = f"Error parsing response: {e}"
       book_info["Response Text"] = response.text
 
-    log_metadata_section(logger, "FETCHED METADATA", {
+    logger.info(f"🌐 ONLINE METADATA FETCHED:")
+    log_metadata_section(logger, "", OrderedDict({
         "title": title,
         "authors": authors,
         "description": description,
         "date": date,
         "series": series,
         "index": index if index else None,  # Optional formatting
-    })
+    }))
 
     return series, best_match, authors, index, date, description
