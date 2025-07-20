@@ -11,6 +11,8 @@ manga_update_metadata = os.getenv('MANGA_UPDATE_METADATA', 'false')
 kcc_process = os.getenv('KCC_PROCESS', 'false')
 kcc_options = os.getenv('KCC_OPTIONS', '')
 update_mode = os.getenv('UPDATE_MODE', 'PARTIAL')
+remove_prefix = os.getenv('REMOVE_PREFIX', 'false')
+clean_title = os.getenv('CLEAN_TITLE', 'false')
 
 watch_directory = '/app/ebooks/ebooks_in'
 output_directory = '/app/ebooks/ebooks_out'

@@ -12,6 +12,8 @@ services:
       - MANGA_BOOK_UPDATE_METADATA=true
       - UPDATE_MODE=complete
       - SCAN_SCHEDULE=0 0 * * *
+      - REMOVE_PREFIX=true
+      - CLEAN_TITLE=true
     volumes:
       - /ebooks_in:/app/ebooks/ebooks_in
       - /ebooks_out:/app/ebooks/ebooks_out

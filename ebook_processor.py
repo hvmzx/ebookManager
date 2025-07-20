@@ -52,7 +52,11 @@ class EbookProcessor:
         logger.info(f"{'='*60}")
         
         if self.is_manga:
-            series, title, authors, index = self.extract_manga_metadata(file_path)
+            manga_metadata = self.extract_manga_metadata(file_path)
+            if manga_metadata is None:
+                logger.error(f"Could not extract metadata from manga file: {filename}")
+                return
+            series, title, authors, index, description, date = manga_metadata
             if kcc_process:
                 file_path = self.process_with_kcc(file_path, title, authors)
                 logger.info(f'KCC processed file: {file_path}')
@@ -60,58 +64,159 @@ class EbookProcessor:
                 edit_epub_metadata(
                     file_path,
                     current_metadata=(None, None, None, None, None, None),
-                    fetched_metadata=(series, title, authors, index, None, None),
-                    update_mode='partial'
-                )
-        elif not self.is_manga:
-            series, title, authors, index, date, description = extract_epub_metadata(file_path) #self.extract_book_metadata(file_path)
-            if book_update_metadata:
-                fetched_series, fetched_title, fetched_authors, fetched_index, fetched_date, fetched_description = fetch_book_info(title, authors)
-                edit_epub_metadata(
-                    file_path,
-                    current_metadata=(series, title, authors, index, date, description),
-                    fetched_metadata=(fetched_series, fetched_title, fetched_authors, fetched_index, fetched_date, fetched_description),
+                    fetched_metadata=(series, title, authors, index, date, description),
                     update_mode='complete'
                 )
-                # Use the fetched metadata for filename (cleaner, updated data)
-                title, authors, series = fetched_title, fetched_authors, fetched_series
+        elif not self.is_manga:
+            book_metadata = extract_epub_metadata(file_path) #self.extract_book_metadata(file_path)
+            if book_metadata is None:
+                logger.error(f"Could not extract metadata from book file: {filename}")
+                return
+            series, title, authors, index, date, description = book_metadata
+            if book_update_metadata:
+                fetched_series, fetched_title, fetched_authors, fetched_index, fetched_date, fetched_description = fetch_book_info(title, authors)
+                if fetched_series is None:
+                    logger.warning(f"No metadata found for book: {title}, skipping metadata update")
+                else:
+                    edit_epub_metadata(
+                        file_path,
+                        current_metadata=(series, title, authors, index, date, description),
+                        fetched_metadata=(fetched_series, fetched_title, fetched_authors, fetched_index, fetched_date, fetched_description),
+                        update_mode='complete'
+                    )
+                    # Use the fetched metadata for filename (cleaner, updated data)
+                    title, authors, series = fetched_title, fetched_authors, fetched_series
         self.rename_and_move_file(file_path, title, series, authors)
 
 
+    def extract_comicinfo_metadata(self, cbz_path):
+        """Extract metadata from ComicInfo.xml inside a CBZ archive."""
+        try:
+            with zipfile.ZipFile(cbz_path, 'r') as z:
+                if 'ComicInfo.xml' in z.namelist():
+                    with z.open('ComicInfo.xml') as f:
+                        tree = ET.parse(f)
+                        root = tree.getroot()
+                        def get(tag):
+                            elem = root.find(tag)
+                            return elem.text.strip() if elem is not None and elem.text else None
+                        # Date handling
+                        year = get('Year')
+                        month = get('Month')
+                        day = get('Day')
+                        date = None
+                        if year and month and day:
+                            date = f"{year}-{int(month):02d}-{int(day):02d}"
+                        elif year and month:
+                            date = f"{year}-{int(month):02d}"
+                        elif year:
+                            date = year
+                        # Authors
+                        writers = get('Writer')
+                        authors = [a.strip() for a in writers.split(',')] if writers else []
+                        return {
+                            'title': get('Title'),
+                            'series': get('Series'),
+                            'index': get('Number'),
+                            'description': get('Summary'),
+                            'authors': authors,
+                            'date': date
+                        }
+        except Exception as e:
+            logger.warning(f"Failed to extract ComicInfo.xml: {e}")
+        return {}
+
     def extract_manga_metadata(self, file_path):
-        """Extract metadata for manga file."""
         file_name = os.path.basename(file_path)
-        filename = file_name.replace('_', ' ').replace('.cbz', '').strip()
-        chapter_match = re.search(r'(Chapter\s*\d+)(.*)', filename, re.IGNORECASE)
-
-        if not chapter_match:
-            return None
-        chapter_str = chapter_match.group(1).strip()
-        rest_of_title = chapter_match.group(2).strip()
-        chapter_number = re.search(r'\d+', chapter_str).group()
-        title = f"{chapter_str} {rest_of_title}".strip()
-
-        prefix = filename[:chapter_match.start()].strip()
-        author = None
-        series = None if os.path.basename(os.path.dirname(file_path)).lower() == "mangas" else os.path.basename(os.path.dirname(file_path))
-        if prefix:
-            parts = [p.strip().rstrip('-').strip() for p in prefix.split(' - ')]
-            if len(parts) == 2:
-                author, series = parts  # Now it should capture 'Oda' as the author
-            elif len(parts) == 1:
-                series = parts[0]
-
-        authors = [author.strip()] if author else []
-
+        filename = file_name.replace('.cbz', '').strip()
+        # Apply REMOVE_PREFIX if enabled
+        if remove_prefix == 'true':
+            underscore_pos = filename.find('_')
+            if underscore_pos != -1:
+                filename = filename[underscore_pos + 1:].strip()
+                logger.info(f"Removed prefix, new filename: {filename}")
+        # Extract series from directory name
+        series_dir = None if os.path.basename(os.path.dirname(file_path)).lower() == "mangas" else os.path.basename(os.path.dirname(file_path))
+        # 1. Try ComicInfo.xml first
+        comicinfo = self.extract_comicinfo_metadata(file_path)
+        # 2. Fallback to filename parsing
+        # (existing filename parsing logic, but store results in fallback_*)
+        volume_num = None
+        chapter_num = None
+        fallback_title = filename
+        fallback_index = None
+        vol_ch_match = re.search(r'(?:Vol(?:ume)?\.?\s*(\d+)),\s*(?:Ch(?:apter)?\.?\s*(\d+))', filename, re.IGNORECASE)
+        if vol_ch_match:
+            volume_num = vol_ch_match.group(1)
+            chapter_num = vol_ch_match.group(2)
+            fallback_index = chapter_num
+            rest_of_title = filename[vol_ch_match.end():].strip()
+            if rest_of_title.startswith('_'):
+                rest_of_title = rest_of_title[1:].strip()
+            if clean_title == 'true':
+                fallback_title = f"Vol. {volume_num}"
+                if rest_of_title:
+                    fallback_title += f" - {rest_of_title}"
+            else:
+                fallback_title = f"Vol. {volume_num}, Ch. {chapter_num}"
+                if rest_of_title:
+                    fallback_title += f" - {rest_of_title}"
+        else:
+            vol_match = re.search(r'(?:Vol(?:ume)?\.?\s*(\d+))', filename, re.IGNORECASE)
+            if vol_match:
+                volume_num = vol_match.group(1)
+                fallback_index = volume_num
+                rest_of_title = filename[vol_match.end():].strip()
+                if rest_of_title.startswith('_'):
+                    rest_of_title = rest_of_title[1:].strip()
+                if clean_title == 'true':
+                    fallback_title = rest_of_title if rest_of_title else "Unknown Title"
+                else:
+                    fallback_title = f"Vol. {volume_num}"
+                    if rest_of_title:
+                        fallback_title += f" - {rest_of_title}"
+            else:
+                chapter_match = re.search(r'(?:Ch(?:apter)?\.?\s*(\d+))', filename, re.IGNORECASE)
+                if chapter_match:
+                    chapter_num = chapter_match.group(1)
+                    fallback_index = chapter_num
+                    rest_of_title = filename[chapter_match.end():].strip()
+                    if rest_of_title.startswith('_'):
+                        rest_of_title = rest_of_title[1:].strip()
+                    if clean_title == 'true':
+                        fallback_title = rest_of_title if rest_of_title else "Unknown Title"
+                    else:
+                        fallback_title = f"Ch. {chapter_num}"
+                        if rest_of_title:
+                            fallback_title += f" - {rest_of_title}"
+                else:
+                    fallback_title = filename
+                    fallback_index = None
+        # Authors from filename (if any)
+        fallback_authors = []
+        if ' - ' in filename:
+            parts = [p.strip() for p in filename.split(' - ')]
+            if len(parts) >= 3:
+                fallback_authors = [parts[0]]
+            elif len(parts) == 2:
+                fallback_authors = [parts[0]]
+        # Prefer ComicInfo fields, fallback to filename parsing
+        title = comicinfo.get('title') or fallback_title
+        series = comicinfo.get('series') or series_dir
+        authors = comicinfo.get('authors') or fallback_authors
+        index = comicinfo.get('index') or fallback_index
+        description = comicinfo.get('description')
+        date = comicinfo.get('date')
         logger.info(f"📚 MANGA METADATA EXTRACTED:")
         log_metadata_section(logger, "", {
             "title": title,
             "authors": authors,
             "series": series,
-            "index": chapter_number if chapter_number else None,  # Optional formatting
+            "index": index,
+            "description": description,
+            "date": date,
         })
-
-        return series, title, authors, chapter_number
+        return series, title, authors, index, description, date
 
     def process_with_kcc(self, file_path, title, authors):
         """Process file using KCC tool."""
@@ -139,6 +244,14 @@ class EbookProcessor:
 
     def rename_and_move_file(self, file_path, title, series, authors=None):
         filename = os.path.basename(file_path)
+        
+        # Safety checks for None values
+        if title is None:
+            title = "Unknown Title"
+        if series is None:
+            series = ""
+        if authors is None:
+            authors = []
         
         if self.is_manga:
             output_path = os.path.join(output_directory, "mangas")

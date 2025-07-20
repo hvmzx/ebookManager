@@ -52,6 +52,8 @@ HARDCOVER_API_KEY=        # API key for book metadata fetching
 BOOK_UPDATE_METADATA=false    # Update book metadata
 MANGA_UPDATE_METADATA=false   # Update manga metadata
 UPDATE_MODE=PARTIAL       # PARTIAL | complete
+REMOVE_PREFIX=false       # Remove prefix before underscore for manga files
+CLEAN_TITLE=false         # Remove chapter/volume from manga titles
 ```
 
 ### KCC (Kindle Comic Converter) Settings
@@ -86,7 +88,13 @@ KCC_OPTIONS=              # KCC options (eg: -p KoC -m -u)
 
 ### Naming Conventions
 - **Books**: `Author - Title.epub` (preferably)
-- **Manga**: `Author - Series - Title.cbz` (Chapter/Vol. auto-parsed)
+- **Manga**: 
+  - `Author - Series - Title.cbz` (Chapter/Vol. auto-parsed)
+  - `Flame Scans_Vol. 3, Ch. 200_ Side Story 21.cbz` (with REMOVE_PREFIX=true)
+  - `Volume 5.cbz` (Volume only, index = 5)
+  - `Chapter 150.cbz` (Chapter only, index = 150)
+  - `Vol. 2, Chapter 75.cbz` (Both, index = 75)
+  - Supports various formats: Vol./Volume, Ch./Chapter
 
 ## Usage
 

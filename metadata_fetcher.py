@@ -54,12 +54,13 @@ def fetch_book_info(title, authors):
 
     best_index = get_best_match_index(hits, authors)
     
+    if best_index < 0:
+        logger.error("No match from metadata provider")
+        return None, title, authors, None, None, None
+    
     document = data['data']['search']['results']['hits'][best_index]['document']
 
-    if best_index >= 0:
-      logger.info(f"Best match: {document['title']} with id \"{document['id']}\"")
-    else:
-      logger.error("No match from metadata provider")
+    logger.info(f"Best match: {document['title']} with id \"{document['id']}\"")
 
     book_info = {}
     series = None
