@@ -55,6 +55,19 @@ def edit_epub_metadata(epub_path, current_metadata, fetched_metadata, update_mod
             'dc': 'http://purl.org/dc/elements/1.1/'
         }
         
+        # Register namespaces for proper XML writing
+        ET.register_namespace('', 'http://www.idpf.org/2007/opf')
+        ET.register_namespace('dc', 'http://purl.org/dc/elements/1.1/')
+        
+        # Ensure the package element has the correct namespace structure
+        if opf_root.get('xmlns:dc') is None:
+            opf_root.set('xmlns:dc', 'http://purl.org/dc/elements/1.1/')
+        
+        # Ensure the metadata element has the dc namespace
+        metadata_elem = opf_root.find('.//opf:metadata', namespaces)
+        if metadata_elem is not None and metadata_elem.get('xmlns:dc') is None:
+            metadata_elem.set('xmlns:dc', 'http://purl.org/dc/elements/1.1/')
+        
         # Update metadata
         metadata_elem = opf_root.find('.//opf:metadata', namespaces)
         if metadata_elem is None:
@@ -195,7 +208,13 @@ def edit_epub_metadata(epub_path, current_metadata, fetched_metadata, update_mod
                 date_elem.text = fetched_date
             updated_metadata['date'] = fetched_date
         
-        # Save the modified OPF file
+        # Save the modified OPF file with proper namespace handling
+        # Ensure the package element has the correct namespace order
+        if opf_root.get('xmlns:dc') is not None:
+            # Remove and re-add to ensure correct order
+            opf_root.attrib.pop('xmlns:dc')
+            opf_root.set('xmlns:dc', 'http://purl.org/dc/elements/1.1/')
+        
         opf_tree.write(opf_path, encoding='utf-8', xml_declaration=True)
         
         # Create a new EPUB with the modified contents
