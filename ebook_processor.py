@@ -136,7 +136,13 @@ class EbookProcessor:
                 filename = filename[underscore_pos + 1:].strip()
                 logger.info(f"Removed prefix, new filename: {filename}")
         # Extract series from directory name
-        series_dir = None if os.path.basename(os.path.dirname(file_path)).lower() == "mangas" else os.path.basename(os.path.dirname(file_path))
+        # Handle both mangas/series/chapter.cbz and mangas/source/series/chapter.cbz
+        file_dir = os.path.dirname(file_path)
+        parent_dir = os.path.dirname(file_dir)
+        
+        # If parent directory is "mangas", use the file's directory as series
+        # If parent directory is not "mangas", use the file's directory as series (it's the series folder)
+        series_dir = os.path.basename(file_dir)
         # 1. Try ComicInfo.xml first
         comicinfo = self.extract_comicinfo_metadata(file_path)
         # 2. Fallback to filename parsing
