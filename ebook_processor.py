@@ -248,6 +248,23 @@ class EbookProcessor:
         )
         return new_file_path if new_file_path else file_path
 
+    def sanitize_filename(self, filename):
+        """Sanitize filename by removing/replacing invalid characters."""
+        import re
+        # Replace invalid characters with spaces or dashes
+        # Windows: < > : " | ? * \ /
+        # Unix: / (null byte)
+        # Common: : * ? " < > |
+        invalid_chars = r'[<>:"|?*\x00]'
+        # Replace colons with dashes, other invalid chars with spaces
+        filename = re.sub(r':', '-', filename)
+        filename = re.sub(invalid_chars, ' ', filename)
+        # Remove leading/trailing spaces and dots
+        filename = filename.strip(' .')
+        # Replace multiple spaces with single space
+        filename = re.sub(r'\s+', ' ', filename)
+        return filename
+
     def rename_and_move_file(self, file_path, title, series, authors=None):
         filename = os.path.basename(file_path)
         
@@ -258,6 +275,9 @@ class EbookProcessor:
             series = ""
         if authors is None:
             authors = []
+        
+        # Sanitize title for filename
+        title = self.sanitize_filename(title)
         
         if self.is_manga:
             output_path = os.path.join(output_directory, "mangas")
